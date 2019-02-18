@@ -1,0 +1,219 @@
+#!/bin/bash
+#
+# Program 1 - stats
+# Parker Howell
+# CS 344
+# Oct 9th, 2017
+#
+
+#echo "In stats"
+#echo "Number of parameters: $#"
+#echo "The parameters were: $@"
+
+# trap to remove temp files
+trap cleanError KILL INT HUP TERM
+trap cleanExit EXIT
+
+cleanError ()
+{
+	#echo "Cleaning temp files."
+	rm -f datafile$$
+	rm -f tempInput$$
+	rm -f rowPrintData$$
+	rm -f colAvgPrintData$$
+	rm -f colMedPrintData$$
+	exit 1
+}
+
+cleanExit ()
+{
+	rm -f datafile$$
+	rm -f tempInput$$
+	rm -f rowPrintData$$
+	rm -f colAvgPrintData$$
+	rm -f colMedPrintData$$
+}
+
+
+# test for arguments
+# too few
+if [ "$#" -lt 1 ]
+then
+	#echo "Need at least 1 parameter."
+	echo "./stats {-rows|-cols} [file]" 1>&2
+	exit 1
+
+
+# too many 
+elif [ "$#" -gt 2 ]
+then
+	#echo "Need fewer than 3 parameters."
+	echo "./stats {-rows|-cols} [file]" 1>&2
+	exit 1
+fi
+
+
+# just right	
+# the if/elif check below is borowed from our assignment
+# specification.
+
+datafilepath="datafile$$"
+
+
+# is input from stdin or a file?
+# input from stdin
+if [ "$#" = "1" ]
+then
+	#echo "Using stdin for input."
+	cat > "$datafilepath"
+
+
+#input from file
+elif [ "$#" = "2" ]
+then
+	datafilepath=$2
+		
+	# check that input file exists
+	if test -e "$datafilepath"
+	then
+		:  # had to add these :'s so wouldnt get error after
+		   # commenting out the echos...
+		#echo "The file exists."
+	else
+		echo "./stats - cannot read $2" 1>&2
+		exit 1
+	fi
+
+	# check that input file is readable
+	if test -r "$datafilepath"
+	then 
+		: 
+		#echo "The file is readable."
+	else
+		echo "./stats - cannot read $2" 1>&2
+		exit 1
+	fi
+
+fi
+#echo "1-2 params used. :)"
+
+
+# check for -r of -c option
+if [[ $1 != -c* ]] && [[ $1 != -r* ]]; 
+then		
+	#echo "The first parameter needs a \"-c*\" or a \"-r*\"."	
+	echo "./stats {-rows|-cols} [file]" 1>&2
+	exit 1
+fi
+
+
+# if we want to calculate rows then we need to transpose the input
+if [[ $1 = -r* ]]
+then
+	transposed="tempInput$$"
+	# get the count of columns/"words" 
+	colCount=$(head -n 1 "$datafilepath" | wc -w) 
+
+	# then grab each col and write it to transposed file as a row
+	# while ref: tldp.org/HOWTO/Bash-Prog-Intro-HOWTO-7.html
+	COUNTER=1
+	while [ ! $COUNTER -gt $colCount ];
+	do
+		# cut each col and replace newlines with tabs
+		cut -f $COUNTER "$datafilepath" | tr '\n' '\t'
+		# echo adds a newline at the end of the new row
+		echo
+		let COUNTER=COUNTER+1
+	done >> "$transposed"
+	#cat $transposed
+
+	# set input to transposed file
+	datafilepath=$transposed	
+fi
+
+
+# get the length of each col by counting newlines
+rowCount=$(cat "$datafilepath" | wc -l)
+#echo Rows: $rowCount
+
+
+# get the number of cols by counting "words" in the first line of the head
+colCount=$(head -n 1 "$datafilepath" | wc -w)
+#echo Columns: $colCount
+
+
+# get the median location. Works because of truncations and requirement
+# that we choose the larger value when rowCount is even.
+medLoc=$(expr $(expr $rowCount / 2) + 1)
+#echo MedLoc: $medLoc
+
+
+# loop through input and calculate the sum/average and get the median
+COUNTER=1
+while [ ! $COUNTER -gt $colCount ];
+do
+	# get a column and transfer it into a row for summing
+	sumCol=$(cut -f $COUNTER "$datafilepath" | tr '\n' ' ')
+
+	# sum a column. Reference: Bigloops from assigned reading: 1.4
+	sum=0
+	for i in $sumCol
+	do
+		sum=$(( $sum + $i ))
+	done
+	#echo $sum
+
+
+	# get the average using formula: (a+(b/2)) / b  from assign. .pdf 
+	avg=$(( $(( $sum + $(( $rowCount / 2  ))  )) / $rowCount ))
+	#echo $avg
+
+
+	# get the median. Grab a column, sort it numerically, then grab
+	# the number at the medLoc position
+	med=$(cut -f $COUNTER "$datafilepath" | sort -n | head -n $medLoc | tail -n 1 )
+	#echo $med	
+
+
+	# based on -r or -c option, save values for printing
+	# if we are using rows
+	if [[ $1 = -r* ]];
+	then
+		rowPrint="rowPrintData$$"
+		echo -e "$avg\t$med" >> $rowPrint
+
+	# else we are using columns
+	else
+		#echo Using cols...
+		colAvgPrint="colAvgPrintData$$"
+		colMedPrint="colMedPrintData$$"
+		
+		echo -e "$avg" >> $colAvgPrint
+		echo -e "$med" >> $colMedPrint
+	fi
+
+	let COUNTER=COUNTER+1
+
+done < $datafilepath
+
+
+# print averages and medians
+# if we are using rows
+if [[ $1 = -r* ]];
+then
+	echo -e "Average\tMedian"
+	cat "$rowPrint"
+
+
+# else we are using colums
+else
+	# convert data to rows and print them
+	echo "Averages:"
+	cat "$colAvgPrint" | tr '\n' ' '
+	echo
+	echo "Medians:"
+	cat "$colMedPrint" | tr '\n' ' '
+	echo
+fi
+
+
